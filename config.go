@@ -10,13 +10,18 @@ import (
 // KafkaConfig holds the configuration for Kafka connection
 type KafkaConfig struct {
 	Server   string `envconfig:"KAFKA_SERVER" default:"localhost:9092"`
-	Username string `envconfig:"KAFKA_USERNAME"`
-	Password string `envconfig:"KAFKA_PASSWORD"`
+	Username string `envconfig:"KAFKA_USERNAME" default:""`
+	Password string `envconfig:"KAFKA_PASSWORD" default:""`
 
 	// Debug and logging configuration
 	DebugEnabled bool   `envconfig:"KAFKA_DEBUG_ENABLED" default:"false"`
 	Debug        string `envconfig:"KAFKA_DEBUG" default:""`
 	LogLevel     int    `envconfig:"KAFKA_LOG_LEVEL" default:"6"` // 6=INFO, 7=DEBUG
+}
+
+// ShouldUseAuth returns true if authentication credentials are properly configured
+func (c KafkaConfig) ShouldUseAuth() bool {
+	return c.Username != "" && c.Password != ""
 }
 
 // loadConfig loads configuration from .env file and environment variables

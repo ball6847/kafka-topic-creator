@@ -23,15 +23,13 @@ func NewTopicManager(adminClient *kafka.AdminClient) *TopicManager {
 }
 
 // CreateTopics creates topics with predefined configurations using the admin client with retry logic
-func (tm *TopicManager) CreateTopics(topicSpecs []kafka.TopicSpecification) error {
-	return tm.createTopicsFromSpecs(topicSpecs, len(topicSpecs))
+func (tm *TopicManager) CreateTopics(ctx context.Context, topicSpecs []kafka.TopicSpecification) error {
+	return tm.createTopicsFromSpecs(ctx, topicSpecs)
 }
 
 // createTopicsFromSpecs creates topics from specifications with retry logic
-func (tm *TopicManager) createTopicsFromSpecs(topicSpecs []kafka.TopicSpecification, topicCount int) error {
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func (tm *TopicManager) createTopicsFromSpecs(ctx context.Context, topicSpecs []kafka.TopicSpecification) error {
+	topicCount := len(topicSpecs)
 
 	// Retry logic for connection issues
 	maxRetries := 2

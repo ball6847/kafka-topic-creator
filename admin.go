@@ -34,33 +34,27 @@ func getKafkaAdmin(config KafkaConfig) (*kafka.AdminClient, error) {
 		fmt.Printf("   Debug: Disabled (log level 3)\n")
 	}
 
-	// Add SASL authentication if credentials are provided
-	if config.Username != "" && config.Password != "" {
+	// Set security protocol and authentication
+	if config.ShouldUseAuth() {
+		// Configure SASL authentication
 		configMap.SetKey("sasl.mechanisms", "PLAIN")
 		configMap.SetKey("sasl.username", config.Username)
 		configMap.SetKey("sasl.password", config.Password)
-		configMap.SetKey("security.protocol", "SASL_PLAINTEXT")
-		fmt.Printf("   Authentication: SASL PLAIN\n")
+
+		// Set security protocol based on server type
+		if shouldUseSSL(config.Server) {
+			configMap.SetKey("security.protocol", "SASL_SSL")
+			fmt.Printf("   Authentication: SASL_SSL\n")
+		} else {
+			configMap.SetKey("security.protocol", "SASL_PLAINTEXT")
+			fmt.Printf("   Authentication: SASL_PLAINTEXT\n")
+		}
 		fmt.Printf("   Username: %s\n", config.Username)
 	} else {
+		// Use PLAINTEXT for unauthenticated connections
+		configMap.SetKey("security.protocol", "PLAINTEXT")
 		fmt.Printf("   Authentication: None (PLAINTEXT)\n")
 		fmt.Printf("   ⚠️  WARNING: No authentication credentials provided!\n")
-	}
-
-	// Set security protocol based on authentication and server type
-	if config.Username != "" && config.Password != "" {
-		// Use SASL for authenticated connections
-		if shouldUseSSL(config.Server) {
-			fmt.Printf("   Security: SASL_SSL\n")
-			configMap.SetKey("security.protocol", "SASL_SSL")
-		} else {
-			fmt.Printf("   Security: SASL_PLAINTEXT\n")
-			configMap.SetKey("security.protocol", "SASL_PLAINTEXT")
-		}
-	} else {
-		// Use PLAINTEXT for unauthenticated connections
-		fmt.Printf("   Security: PLAINTEXT\n")
-		configMap.SetKey("security.protocol", "PLAINTEXT")
 	}
 
 	// Create admin client
@@ -75,7 +69,9 @@ func getKafkaAdmin(config KafkaConfig) (*kafka.AdminClient, error) {
 
 // shouldUseSSL determines if SSL should be used based on the server URL
 func shouldUseSSL(server string) bool {
-	// Use SSL for Confluent Cloud or non-localhost servers on port 9092
-	return !strings.Contains(server, "localhost") &&
-		(strings.Contains(server, "confluent.cloud") || strings.Contains(server, ":9092"))
+	// Use SSL for Confluent Cloud or servers with SSL-specific ports
+	return strings.Contains(server, "confluent.cloud") ||
+		strings.Contains(server, ":9093") ||
+		strings.Contains(server, ":9094") ||
+		strings.Contains(server, ":9095")
 }

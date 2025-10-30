@@ -26,18 +26,29 @@ func GetAllTopicConfigs(configFile string) ([]kafka.TopicSpecification, error) {
 	// Read the YAML config file
 	data, err := os.ReadFile(configFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read topics.yaml file: %w", err)
+		return nil, fmt.Errorf("failed to read config file %s: %w", configFile, err)
 	}
 
 	// Parse the YAML content
 	var config TopicsConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse topics.yaml file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file %s: %w", configFile, err)
 	}
 
-	// Convert to Kafka TopicSpecifications
+	// Validate and convert to Kafka TopicSpecifications
 	var topicSpecs []kafka.TopicSpecification
 	for _, topic := range config.Topics {
+		// Validate topic configuration
+		if topic.Name == "" {
+			return nil, fmt.Errorf("topic name cannot be empty")
+		}
+		if topic.Partitions <= 0 {
+			return nil, fmt.Errorf("topic '%s' must have at least 1 partition", topic.Name)
+		}
+		if topic.ReplicationFactor <= 0 {
+			return nil, fmt.Errorf("topic '%s' must have at least 1 replication factor", topic.Name)
+		}
+
 		topicSpecs = append(topicSpecs, kafka.TopicSpecification{
 			Topic:             topic.Name,
 			NumPartitions:     topic.Partitions,
