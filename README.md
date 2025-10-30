@@ -2,19 +2,6 @@
 
 This tool creates Kafka topics for the CheckinPlus platform using a configurable YAML file for topic definitions. The tool supports both predefined topic configurations and custom topic definitions.
 
-## Project Structure
-
-```
-scripts/create-kafka-topics/
-├── config.go          # Configuration management with envconfig
-├── admin.go           # Kafka admin client creation
-├── topicmanager.go    # Topic management with dependency injection
-├── topics.go          # Topic definitions with configurations
-├── main.go            # Application entry point with CLI flags
-├── .env.example       # Example environment configuration
-└── README.md          # This file
-```
-
 ## Installation
 
 ### Via go install
@@ -26,8 +13,6 @@ go install github.com/ball6847/kafka-topic-creator@latest
 ### Via go run
 
 ```bash
-cd scripts/create-kafka-topics
-
 # Create all topics from config file
 go run . -config topics.yaml
 
@@ -36,7 +21,7 @@ go run . -config topics.yaml -list
 
 # Or build and run:
 go build .
-./create-kafka-topics -config topics.yaml [flags]
+./kafka-topic-creator -config topics.yaml [flags]
 ```
 
 **Note**: The `-config` flag is required. No default configuration file will be loaded.
@@ -53,6 +38,9 @@ go build .
 - `KAFKA_SERVER`: Kafka bootstrap servers (default: localhost:9092)
 - `KAFKA_USERNAME`: Username for SASL authentication (optional)
 - `KAFKA_PASSWORD`: Password for SASL authentication (optional)
+- `KAFKA_DEBUG_ENABLED`: Enable debug logging (default: false)
+- `KAFKA_DEBUG`: Debug categories (default: broker,topic,protocol)
+- `KAFKA_LOG_LEVEL`: Log level (default: 6 for INFO, 7 for DEBUG)
 
 ### .env File Support
 
@@ -64,12 +52,21 @@ cp .env.example .env
 
 Then edit `.env` with your Kafka configuration. The application supports both `.env` files and environment variables, with environment variables taking precedence.
 
+### Security and SSL
+
+The tool automatically detects when to use SSL based on the server URL:
+- Confluent Cloud servers (containing "confluent.cloud") use SASL_SSL
+- Port 9092 connections attempt SSL first
+- Falls back to PLAINTEXT for local development
+
+When authentication credentials are provided, the tool uses SASL authentication.
+
 ## How it works
 
 The tool follows a clean architecture pattern:
 
 1. **Configuration Loading** - Loads config from .env file and environment variables
-2. **CLI Parsing** - Parses command-line flags for topic configuration  
+2. **CLI Parsing** - Parses command-line flags for topic configuration
 3. **Config File Processing** - Reads and parses YAML configuration file
 4. **Dependency Setup** - Creates Kafka admin client and topic manager
 5. **Action Execution** - Creates topics using dependency injection
@@ -98,7 +95,7 @@ topics:
 ### Configuration Guidelines
 
 - **High-throughput topics** like `room_availability.room_availability_update` use 12+ partitions for better parallelism
-- **Medium-volume topics** use 6 partitions  
+- **Medium-volume topics** use 6 partitions
 - **Low-volume topics** use 3 partitions or 1 partition
 - All topics use replication factor of 1 by default for development environments
 - For production, consider using replication factor of 3 for fault tolerance
