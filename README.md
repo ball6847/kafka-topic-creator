@@ -15,7 +15,15 @@ scripts/create-kafka-topics/
 └── README.md          # This file
 ```
 
-## Usage
+## Installation
+
+### Via go install
+
+```bash
+go install github.com/ball6847/kafka-topic-creator@latest
+```
+
+### Via go run
 
 ```bash
 cd scripts/create-kafka-topics
