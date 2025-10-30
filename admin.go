@@ -47,12 +47,20 @@ func getKafkaAdmin(config KafkaConfig) (*kafka.AdminClient, error) {
 		fmt.Printf("   ⚠️  WARNING: No authentication credentials provided!\n")
 	}
 
-	// Try SSL first, then fallback to PLAINTEXT
-	if shouldUseSSL(config.Server) {
-		fmt.Printf("   Security: SASL_SSL (trying SSL first)\n")
-		configMap.SetKey("security.protocol", "SASL_SSL")
+	// Set security protocol based on authentication and server type
+	if config.Username != "" && config.Password != "" {
+		// Use SASL for authenticated connections
+		if shouldUseSSL(config.Server) {
+			fmt.Printf("   Security: SASL_SSL\n")
+			configMap.SetKey("security.protocol", "SASL_SSL")
+		} else {
+			fmt.Printf("   Security: SASL_PLAINTEXT\n")
+			configMap.SetKey("security.protocol", "SASL_PLAINTEXT")
+		}
 	} else {
-		fmt.Printf("   Security: SASL_PLAINTEXT\n")
+		// Use PLAINTEXT for unauthenticated connections
+		fmt.Printf("   Security: PLAINTEXT\n")
+		configMap.SetKey("security.protocol", "PLAINTEXT")
 	}
 
 	// Create admin client
@@ -67,6 +75,7 @@ func getKafkaAdmin(config KafkaConfig) (*kafka.AdminClient, error) {
 
 // shouldUseSSL determines if SSL should be used based on the server URL
 func shouldUseSSL(server string) bool {
-	// Confluent Cloud typically uses SSL on port 9092
-	return strings.Contains(server, "confluent.cloud") || strings.Contains(server, ":9092")
+	// Use SSL for Confluent Cloud or non-localhost servers on port 9092
+	return !strings.Contains(server, "localhost") &&
+		(strings.Contains(server, "confluent.cloud") || strings.Contains(server, ":9092"))
 }
