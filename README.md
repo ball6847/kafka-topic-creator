@@ -1,6 +1,6 @@
 # Kafka Topic Creator
 
-This tool creates Kafka topics for the CheckinPlus platform using a configurable YAML file for topic definitions. The tool supports both predefined topic configurations and custom topic definitions.
+This tool creates Kafka topics using a configurable YAML file for topic definitions. The tool supports both predefined topic configurations and custom topic definitions.
 
 ## Installation
 
