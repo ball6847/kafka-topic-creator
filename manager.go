@@ -22,6 +22,148 @@ func NewTopicManager(adminClient *kafka.AdminClient) *TopicManager {
 	}
 }
 
+// GetExistingTopics retrieves metadata for all existing topics
+func (tm *TopicManager) GetExistingTopics(ctx context.Context) (map[string]kafka.TopicMetadata, error) {
+	metadata, err := tm.adminClient.GetMetadata(nil, true, 5000)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata: %w", err)
+	}
+
+	topics := make(map[string]kafka.TopicMetadata)
+	for _, topic := range metadata.Topics {
+		topics[topic.Topic] = topic
+	}
+
+	return topics, nil
+}
+
+// SyncTopics synchronizes topics to match desired configurations (creates missing, updates existing)
+func (tm *TopicManager) SyncTopics(ctx context.Context, topicSpecs []kafka.TopicSpecification) error {
+	// Get existing topics metadata
+	existingTopics, err := tm.GetExistingTopics(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get existing topics: %w", err)
+	}
+
+	// Track operation results
+	var topicsToCreate []kafka.TopicSpecification
+	var topicsToUpdate []topicUpdateInfo
+	var cannotScaleDown []topicScaleDownInfo
+	var unchangedCount int
+
+	// Analyze each desired topic
+	for _, spec := range topicSpecs {
+		existing, exists := existingTopics[spec.Topic]
+
+		if !exists {
+			// Topic doesn't exist - add to creation list
+			topicsToCreate = append(topicsToCreate, spec)
+			continue
+		}
+
+		// Topic exists - check if updates are needed
+		currentPartitions := len(existing.Partitions)
+		needsUpdate := false
+		updateInfo := topicUpdateInfo{
+			topic:   spec.Topic,
+			current: existing,
+			desired: spec,
+		}
+
+		// Check partition changes
+		if spec.NumPartitions > currentPartitions {
+			// Need to increase partitions
+			needsUpdate = true
+			updateInfo.needsPartitionIncrease = true
+		} else if spec.NumPartitions < currentPartitions {
+			// Cannot decrease partitions - report this
+			cannotScaleDown = append(cannotScaleDown, topicScaleDownInfo{
+				topic:             spec.Topic,
+				currentPartitions: currentPartitions,
+				desiredPartitions: spec.NumPartitions,
+			})
+		}
+
+		// Check replication factor changes (more complex, for now just report)
+		if len(existing.Partitions) > 0 && int32(spec.ReplicationFactor) != existing.Partitions[0].Replicas[0] {
+			// This would require more complex broker reassignment
+			// For now, we'll note it but not implement
+			fmt.Printf("⚠️  Topic '%s' replication factor change not yet implemented\n", spec.Topic)
+		}
+
+		if needsUpdate {
+			topicsToUpdate = append(topicsToUpdate, updateInfo)
+		} else if spec.NumPartitions == currentPartitions {
+			fmt.Printf("ℹ️  Topic '%s' already matches desired configuration\n", spec.Topic)
+			unchangedCount++
+		}
+	}
+
+	// Execute operations
+	createdCount, updatedCount, failedCount := 0, 0, 0
+
+	// Create missing topics
+	if len(topicsToCreate) > 0 {
+		fmt.Printf("📋 Creating %d new topics...\n", len(topicsToCreate))
+		err := tm.createTopicsFromSpecs(ctx, topicsToCreate)
+		if err != nil {
+			fmt.Printf("❌ Failed to create topics: %v\n", err)
+			failedCount += len(topicsToCreate)
+		} else {
+			createdCount = len(topicsToCreate)
+		}
+	}
+
+	// Update existing topics
+	if len(topicsToUpdate) > 0 {
+		fmt.Printf("🔄 Updating %d existing topics...\n", len(topicsToUpdate))
+		for _, update := range topicsToUpdate {
+			if update.needsPartitionIncrease {
+				err := tm.increaseTopicPartitions(ctx, update.topic, update.desired.NumPartitions)
+				if err != nil {
+					fmt.Printf("❌ Failed to update partitions for topic '%s': %v\n", update.topic, err)
+					failedCount++
+				} else {
+					fmt.Printf("✅ Successfully updated partitions for topic '%s'\n", update.topic)
+					updatedCount++
+				}
+			}
+		}
+	}
+
+	// Report topics that cannot be scaled down
+	if len(cannotScaleDown) > 0 {
+		fmt.Printf("⚠️  %d topics cannot be scaled down (Kafka limitation):\n", len(cannotScaleDown))
+		for _, info := range cannotScaleDown {
+			fmt.Printf("   - '%s': %d → %d partitions\n", info.topic, info.currentPartitions, info.desiredPartitions)
+		}
+	}
+
+	// Print summary
+	fmt.Printf("📊 Sync Summary: %d created, %d updated, %d unchanged, %d cannot scale down, %d failed\n",
+		createdCount, updatedCount, unchangedCount, len(cannotScaleDown), failedCount)
+
+	if failedCount > 0 {
+		return fmt.Errorf("some operations failed: %d failures", failedCount)
+	}
+
+	return nil
+}
+
+// Helper types for sync operations
+type topicUpdateInfo struct {
+	topic                  string
+	current                kafka.TopicMetadata
+	desired                kafka.TopicSpecification
+	needsPartitionIncrease bool
+}
+
+type topicScaleDownInfo struct {
+	topic             string
+	currentPartitions int
+	desiredPartitions int
+}
+
 // CreateTopics creates topics with predefined configurations using the admin client with retry logic
 func (tm *TopicManager) CreateTopics(ctx context.Context, topicSpecs []kafka.TopicSpecification) error {
 	return tm.createTopicsFromSpecs(ctx, topicSpecs)
@@ -93,6 +235,32 @@ func (tm *TopicManager) createTopicsFromSpecs(ctx context.Context, topicSpecs []
 	}
 
 	return lastErr
+}
+
+// increaseTopicPartitions increases the number of partitions for a topic
+func (tm *TopicManager) increaseTopicPartitions(ctx context.Context, topicName string, newPartitionCount int) error {
+	// Create partition specification
+	partitionSpec := []kafka.PartitionsSpecification{
+		{
+			Topic:      topicName,
+			IncreaseTo: newPartitionCount,
+		},
+	}
+
+	// Alter topic to increase partitions
+	results, err := tm.adminClient.CreatePartitions(ctx, partitionSpec, nil)
+	if err != nil {
+		return fmt.Errorf("failed to increase partitions for topic '%s': %w", topicName, err)
+	}
+
+	// Check results
+	for _, result := range results {
+		if result.Error.Code() != kafka.ErrNoError {
+			return fmt.Errorf("failed to increase partitions for topic '%s': %v", result.Topic, result.Error)
+		}
+	}
+
+	return nil
 }
 
 // isRetryableError determines if an error should trigger a retry

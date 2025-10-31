@@ -73,18 +73,18 @@ func main() {
 	topicManager := NewTopicManager(adminClient)
 
 	topicCount := len(topicConfigs)
-	fmt.Printf("📋 Creating %d topics with predefined configurations\n", topicCount)
+	fmt.Printf("📋 Syncing %d topics with predefined configurations\n", topicCount)
 
-	// Create topics with context for cancellation
-	err = topicManager.CreateTopics(ctx, topicConfigs)
+	// Sync topics with context for cancellation
+	err = topicManager.SyncTopics(ctx, topicConfigs)
 	if err != nil {
 		if ctx.Err() == context.Canceled {
-			fmt.Println("✅ Topic creation cancelled by user")
+			fmt.Println("✅ Topic sync cancelled by user")
 		} else {
-			log.Fatalf("❌ Failed to create topics: %v", err)
+			log.Fatalf("❌ Failed to sync topics: %v", err)
 		}
 		return
 	}
 
-	fmt.Println("✅ Topic creation process completed successfully!")
+	fmt.Println("✅ Topic sync process completed successfully!")
 }
